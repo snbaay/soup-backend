@@ -45,7 +45,7 @@ def test_concurrent_duplicate_posts_resolve_to_one_job(session_factory):
             barrier.wait()
             with session_factory() as db:
                 job, same = queue.create_job(db, "concurrent-key", index % 2, False)
-                results.append((job.id, same, job.duration_ms))
+                results.append((job.id, same, index % 2, job.duration_ms))
         except Exception as exc:
             failures.append(exc)
 
@@ -58,8 +58,10 @@ def test_concurrent_duplicate_posts_resolve_to_one_job(session_factory):
     assert not any(thread.is_alive() for thread in threads)
     assert not failures
     assert len(results) == 8 and len({item[0] for item in results}) == 1
-    assert all(same == (duration == winner_duration) for _, same, duration in results
-               for winner_duration in [results[0][2]])
+    assert len({persisted_duration for _, _, _, persisted_duration in results}) == 1
+    assert sum(same for _, same, _, _ in results) == 4
+    assert all(same == (requested_duration == persisted_duration)
+               for _, same, requested_duration, persisted_duration in results)
 
 
 def test_simultaneous_claim_only_one_owner(session_factory):
