@@ -1,0 +1,23 @@
+{
+  "expected": 100,
+  "found": 100,
+  "missing_keys": [],
+  "unexpected_keys": [],
+  "statuses": {
+    "queued": 0,
+    "running": 0,
+    "succeeded": 87,
+    "failed": 0,
+    "cancelled": 13
+  },
+  "duplicate_effects": 0,
+  "invalid_terminal_effect_or_timestamp": 0,
+  "effect_count": 87,
+  "passed": true,
+  "request_errors": [],
+  "primary_post_rps": 100.21,
+  "target_post_rps": 100.0,
+  "target_post_rps_met": true,
+  "worker_kills": 0,
+  "elapsed_seconds": 62.87
+}

@@ -1,0 +1,15 @@
+=== Repeat 1 ===
+ERROR: not found: /workspaces/soup-backend/tests/test_api.py::test_concurrent_same_key_same_payload
+(no match in any of [<Module test_api.py>])
+
+ERROR: not found: /workspaces/soup-backend/tests/test_api.py::test_concurrent_same_key_conflicting_payload
+(no match in any of [<Module test_api.py>])
+
+
+=============================== warnings summary ===============================
+../../home/codespace/.local/lib/python3.14/site-packages/fastapi/testclient.py:1
+  /home/codespace/.local/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 warning in 0.27s
