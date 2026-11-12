@@ -1,0 +1,229 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.2, pytest-9.2.0, pluggy-1.7.0 -- /home/codespace/.python/current/bin/python
+cachedir: .pytest_cache
+rootdir: /workspaces/soup-backend
+plugins: platformdirs-4.14.0, anyio-4.15.1
+collecting ... collected 17 items
+
+tests/test_api.py::test_create_list_get_cancel_and_conflict ERROR        [  5%]
+tests/test_api.py::test_pagination ERROR                                 [ 11%]
+tests/test_queue.py::test_transactions_use_read_committed ERROR          [ 17%]
+tests/test_queue.py::test_idempotent_retry_and_conflict ERROR            [ 23%]
+tests/test_queue.py::test_concurrent_duplicate_posts_resolve_to_one_job ERROR [ 29%]
+tests/test_queue.py::test_simultaneous_claim_only_one_owner ERROR        [ 35%]
+tests/test_queue.py::test_cancel_before_claim ERROR                      [ 41%]
+tests/test_queue.py::test_cancel_then_complete_and_complete_then_cancel ERROR [ 47%]
+tests/test_queue.py::test_expired_lease_zombie_and_reclaim ERROR         [ 52%]
+tests/test_queue.py::test_attempt_exhaustion_after_crash ERROR           [ 58%]
+tests/test_queue.py::test_work_failure_retries_then_fails ERROR          [ 64%]
+tests/test_queue.py::test_cancel_complete_race_commits_consistent_result ERROR [ 70%]
+tests/test_queue.py::test_hard_deadline_fences_worker ERROR              [ 76%]
+tests/test_queue.py::test_host_clock_skew_does_not_change_lease_decision ERROR [ 82%]
+tests/test_queue.py::test_sigkill_then_replacement_recovers_job ERROR    [ 88%]
+tests/test_unit.py::test_hash_stable_and_sensitive PASSED                [ 94%]
+tests/test_unit.py::test_cursor_round_trip PASSED                        [100%]
+
+==================================== ERRORS ====================================
+__________ ERROR at setup of test_create_list_get_cancel_and_conflict __________
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+______________________ ERROR at setup of test_pagination _______________________
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+____________ ERROR at setup of test_transactions_use_read_committed ____________
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+_____________ ERROR at setup of test_idempotent_retry_and_conflict _____________
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+_____ ERROR at setup of test_concurrent_duplicate_posts_resolve_to_one_job _____
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+___________ ERROR at setup of test_simultaneous_claim_only_one_owner ___________
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+__________________ ERROR at setup of test_cancel_before_claim __________________
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+_____ ERROR at setup of test_cancel_then_complete_and_complete_then_cancel _____
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+___________ ERROR at setup of test_expired_lease_zombie_and_reclaim ____________
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+____________ ERROR at setup of test_attempt_exhaustion_after_crash _____________
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+____________ ERROR at setup of test_work_failure_retries_then_fails ____________
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+____ ERROR at setup of test_cancel_complete_race_commits_consistent_result _____
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+______________ ERROR at setup of test_hard_deadline_fences_worker ______________
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+____ ERROR at setup of test_host_clock_skew_does_not_change_lease_decision _____
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+_________ ERROR at setup of test_sigkill_then_replacement_recovers_job _________
+
+    @pytest.fixture
+    def session_factory():
+        url = os.getenv("TEST_DATABASE_URL")
+        if not url:
+            pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+        if not url.rsplit("/", 1)[-1] == "soup_test":
+>           pytest.fail("TEST_DATABASE_URL must point to soup_test; tests recreate its tables")
+E           Failed: TEST_DATABASE_URL must point to soup_test; tests recreate its tables
+
+tests/conftest.py:17: Failed
+=============================== warnings summary ===============================
+../../home/codespace/.local/lib/python3.14/site-packages/fastapi/testclient.py:1
+  /home/codespace/.local/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/test_api.py::test_create_list_get_cancel_and_conflict - Failed: T...
+ERROR tests/test_api.py::test_pagination - Failed: TEST_DATABASE_URL must poi...
+ERROR tests/test_queue.py::test_transactions_use_read_committed - Failed: TES...
+ERROR tests/test_queue.py::test_idempotent_retry_and_conflict - Failed: TEST_...
+ERROR tests/test_queue.py::test_concurrent_duplicate_posts_resolve_to_one_job
+ERROR tests/test_queue.py::test_simultaneous_claim_only_one_owner - Failed: T...
+ERROR tests/test_queue.py::test_cancel_before_claim - Failed: TEST_DATABASE_U...
+ERROR tests/test_queue.py::test_cancel_then_complete_and_complete_then_cancel
+ERROR tests/test_queue.py::test_expired_lease_zombie_and_reclaim - Failed: TE...
+ERROR tests/test_queue.py::test_attempt_exhaustion_after_crash - Failed: TEST...
+ERROR tests/test_queue.py::test_work_failure_retries_then_fails - Failed: TES...
+ERROR tests/test_queue.py::test_cancel_complete_race_commits_consistent_result
+ERROR tests/test_queue.py::test_hard_deadline_fences_worker - Failed: TEST_DA...
+ERROR tests/test_queue.py::test_host_clock_skew_does_not_change_lease_decision
+ERROR tests/test_queue.py::test_sigkill_then_replacement_recovers_job - Faile...
+=================== 2 passed, 1 warning, 15 errors in 0.68s ====================
