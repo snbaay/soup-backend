@@ -33,7 +33,7 @@ The integration suite covers same-key retry and conflict under concurrent insert
 
 ## Reproducible chaos run
 
-The host runner creates an API process and eight worker processes against the isolated `soup_chaos` database. It submits 10,000 unique keys at a target 100 POSTs/second, schedules duplicate POSTs and cancellations concurrently, kills one random worker with SIGKILL about every two seconds, starts a replacement, then stops killing and waits for recovery. On Windows, `Popen.kill()` is forced process termination rather than POSIX SIGKILL. Each run has a unique key prefix and unique directory with `events.jsonl`, API/worker stdout, and `audit.json`. A failing run also keeps its raw logs. Run it only after Python dependencies from `requirements.txt` are installed.
+The host runner creates an API process and eight worker processes against the isolated `soup_chaos` database. It submits 10,000 unique keys at a target 100 POSTs/second and schedules duplicate POSTs and cancellations concurrently. While jobs are running, it sends SIGKILL to a random live worker about every two seconds, verifies the process exited from SIGKILL, and starts a replacement. Killing continues through the recovery poll. A run with killing enabled fails if no worker was killed. SIGKILL mode requires POSIX, such as GitHub Codespaces. Each run has a unique key prefix and unique directory with `events.jsonl`, API/worker stdout, and `audit.json`; failed runs are retained. The final audit is attempted even after a configuration or runtime failure. The verdict separates configuration, runtime, and invariant failures. Run it only after Python dependencies from `requirements.txt` are installed.
 
 ```powershell
 docker compose --profile chaos up -d chaos-db
@@ -44,7 +44,7 @@ $env:CHAOS_DATABASE_URL='postgresql+psycopg://soup:soup@localhost:5434/soup_chao
 Dry run example:
 
 ```powershell
-.\.venv\Scripts\python.exe -m scripts.chaos --jobs 100 --workers 2 --submit-rps 20 --kill-interval 2 --timeout 90
+python -m scripts.chaos --jobs 100 --workers 8 --duration-ms 5000 --submit-rps 100 --kill-interval 2 --timeout 240
 ```
 
 Other controls: `--seed`, `--duplicate-rate`, `--cancel-rate`, `--duration-ms`, `--port`, and `--no-kill`. A completed `run_started` event records the prefix. Recheck independently with:
@@ -57,6 +57,6 @@ The checker uses SQL joins and `EXISTS` tests, plus a Python comparison of every
 
 ## Production readiness
 
-**DON'T SHIP at 100 RPS yet.** No PostgreSQL integration run, completed chaos run, or measured 100 RPS run exists in this environment. The first fixes before a ship decision are to run the integration suite and full chaos harness, inspect all raw failures, then measure throughput and latency at 100 RPS with representative job durations and database capacity. A submission target of 100 RPS in the harness is a load input, not proof of sustainable service capacity.
+**DON'T SHIP at 100 RPS yet.** A reported 100-job Codespaces run found 100 jobs and zero duplicate effects, but recorded zero worker kills; the old harness accepted that result. The fixed harness has not yet been run against PostgreSQL. Run it in Codespaces, inspect all raw failures, then perform the 10,000-job run and measure throughput and latency at a sustained 100 RPS with representative job durations and database capacity. A submission target of 100 POSTs/second is a load input, not proof of sustained production capacity.
 
 Surprises and concerns: the source model already contained the main fencing and cancellation rules, but a heartbeat interval longer than a configured short lease could let a healthy worker lose its claim; the worker now sleeps at most half a lease between heartbeats. The largest remaining uncertainty is actual PostgreSQL behavior under process kills and sustained load, because Docker Desktop could not start due to WSL errors here. No runtime result is claimed from the skipped integration suite.

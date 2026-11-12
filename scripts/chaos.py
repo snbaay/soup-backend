@@ -105,6 +105,55 @@ def request(base: str, method: str, path: str, payload=None, key=None):
     return code, body, round((time.monotonic() - started) * 1000, 2)
 
 
+def kill_live_workers(stop, interval, workers, worker_lock, randomizer, running_count,
+                      spawn, recorder, failures, started):
+    """Keep the fault injector alive through recovery, killing only during active work."""
+    kills = 0
+    try:
+        while not stop.wait(interval):
+            if running_count() == 0:
+                recorder.log("kill_skipped", reason="no_running_jobs",
+                             elapsed_seconds=round(time.monotonic() - started, 3))
+                continue
+            with worker_lock:
+                live = [process for process in workers if process.poll() is None]
+                if not live:
+                    raise RuntimeError("all workers exited")
+                victim = randomizer.choice(live)
+                sent_at = time.monotonic()
+                recorder.log("worker_sigkill_sent", pid=victim.pid,
+                             elapsed_seconds=round(sent_at - started, 3))
+                os.kill(victim.pid, signal.SIGKILL)
+                victim.wait(timeout=10)
+                if victim.returncode != -signal.SIGKILL:
+                    raise RuntimeError(f"worker {victim.pid} exited with {victim.returncode}, not SIGKILL")
+                kills += 1
+                recorder.log("worker_sigkill", pid=victim.pid, returncode=victim.returncode,
+                             elapsed_seconds=round(time.monotonic() - started, 3),
+                             seconds_since_signal=round(time.monotonic() - sent_at, 3))
+                workers.remove(victim)
+                replacement = spawn("worker")
+                workers.append(replacement)
+                recorder.log("worker_replaced", killed_pid=victim.pid, pid=replacement.pid,
+                             elapsed_seconds=round(time.monotonic() - started, 3))
+    except Exception as exc:
+        failures.append(f"kill loop: {exc!r}")
+        recorder.log("kill_loop_failed", error=repr(exc))
+    return kills
+
+
+def verdict(audit_report, kill_enabled, kill_count, runtime_failures):
+    configuration_failures = []
+    if kill_enabled and kill_count == 0:
+        configuration_failures.append("killing enabled but no worker received SIGKILL")
+    invariant_failures = []
+    if audit_report is not None and not audit_report["passed"]:
+        invariant_failures.append("SQL/key invariant audit failed")
+    if audit_report is None:
+        runtime_failures = [*runtime_failures, "final invariant audit unavailable"]
+    return configuration_failures, runtime_failures, invariant_failures
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--jobs", type=int, default=10000)
@@ -119,13 +168,7 @@ def main():
     parser.add_argument("--port", type=int, default=8001)
     parser.add_argument("--no-kill", action="store_true")
     args = parser.parse_args()
-    if args.jobs < 1 or args.workers < 1 or args.submit_rps <= 0 or args.timeout <= 0:
-        parser.error("jobs, workers, submit-rps and timeout must be positive")
-    if not (0 <= args.duplicate_rate <= 1 and 0 <= args.cancel_rate <= 1):
-        parser.error("rates must be between 0 and 1")
     database_url = os.getenv("CHAOS_DATABASE_URL", "postgresql+psycopg://soup:soup@localhost:5434/soup_chaos")
-    if urlparse(database_url).path != "/soup_chaos":
-        parser.error("CHAOS_DATABASE_URL must point to the dedicated soup_chaos database")
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid.uuid4().hex[:8]
     run_dir = ROOT / "artifacts" / "runs" / f"chaos-{run_id}"
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -140,8 +183,13 @@ def main():
     workers = []
     handles = []
     stop = threading.Event()
-    errors = []
-    kill_count = 0
+    runtime_failures = []
+    request_errors = []
+    configuration_failures = []
+    kill_counts = []
+    killer = None
+    submit_seconds = None
+    audit_report = None
     base = f"http://127.0.0.1:{args.port}"
     kill_randomizer = random.Random(args.seed)
 
@@ -155,27 +203,12 @@ def main():
         recorder.log("process_started", kind=kind, pid=process.pid, output=output.name)
         return process
 
-    def kill_loop():
-        nonlocal kill_count
-        try:
-            while not stop.wait(args.kill_interval):
-                with worker_lock:
-                    live = [p for p in workers if p.poll() is None]
-                    if not live:
-                        raise RuntimeError("all workers exited")
-                    victim = kill_randomizer.choice(live)
-                    if os.name == "posix":
-                        os.kill(victim.pid, signal.SIGKILL)
-                    else:
-                        victim.kill()  # Windows force termination; POSIX uses literal SIGKILL.
-                    victim.wait(timeout=10)
-                    kill_count += 1
-                    recorder.log("worker_sigkill", pid=victim.pid, returncode=victim.returncode)
-                    workers.remove(victim)
-                    workers.append(spawn("worker"))
-        except Exception as exc:
-            errors.append(f"kill loop: {exc!r}")
-            recorder.log("kill_loop_failed", error=repr(exc))
+    def running_count():
+        with engine.connect() as connection:
+            return connection.scalar(text("""
+                SELECT count(*) FROM jobs
+                WHERE idempotency_key LIKE :pattern AND status = 'running'
+            """), {"pattern": prefix + "%"})
 
     def post(index):
         key = f"{prefix}{index}"
@@ -209,11 +242,23 @@ def main():
     started = time.monotonic()
     recorder.log("run_started", arguments=vars(args), database=database_url.split("@")[ -1], prefix=prefix)
     try:
+        if args.jobs < 1 or args.workers < 1 or args.submit_rps <= 0 or args.timeout <= 0:
+            configuration_failures.append("jobs, workers, submit-rps and timeout must be positive")
+        if args.kill_interval <= 0 or args.duration_ms < 0:
+            configuration_failures.append("kill-interval must be positive and duration-ms nonnegative")
+        if not (0 <= args.duplicate_rate <= 1 and 0 <= args.cancel_rate <= 1):
+            configuration_failures.append("rates must be between 0 and 1")
+        if urlparse(database_url).path != "/soup_chaos":
+            configuration_failures.append("CHAOS_DATABASE_URL must point to the dedicated soup_chaos database")
+        if not args.no_kill and os.name != "posix":
+            configuration_failures.append("SIGKILL requires a POSIX host; run in Codespaces")
+        if configuration_failures:
+            recorder.log("configuration_failed", failures=configuration_failures)
+            return 1
         from soup.db import Base
         import soup.models  # noqa: F401
         engine = create_engine(database_url, isolation_level="READ COMMITTED")
         Base.metadata.create_all(engine)
-        engine.dispose()
         api = spawn("api")
         for _ in range(args.workers):
             workers.append(spawn("worker"))
@@ -228,8 +273,11 @@ def main():
             time.sleep(0.1)
         else:
             raise TimeoutError("API health check timed out")
-        killer = None
         if not args.no_kill:
+            def kill_loop():
+                kill_counts.append(kill_live_workers(
+                    stop, args.kill_interval, workers, worker_lock, kill_randomizer,
+                    running_count, spawn, recorder, runtime_failures, started))
             killer = threading.Thread(target=kill_loop, daemon=True)
             killer.start()
         futures = []
@@ -244,43 +292,57 @@ def main():
                 try:
                     future.result()
                 except Exception as exc:
-                    errors.append(repr(exc))
+                    request_errors.append(repr(exc))
+                    runtime_failures.append(repr(exc))
             for future in concurrent.futures.as_completed(followups):
                 try:
                     future.result()
                 except Exception as exc:
-                    errors.append(repr(exc))
+                    request_errors.append(repr(exc))
+                    runtime_failures.append(repr(exc))
         submit_seconds = time.monotonic() - submit_start
+        recorder.log("submissions_finished", seconds=submit_seconds, primary_rps=args.jobs / submit_seconds,
+                     request_errors=request_errors)
+        deadline = time.monotonic() + args.timeout
+        while time.monotonic() < deadline:
+            audit_report = audit(database_url, prefix, args.jobs)
+            recorder.log("recovery_poll", statuses=audit_report["statuses"],
+                         missing=len(audit_report["missing_keys"]))
+            if audit_report["passed"]:
+                break
+            time.sleep(1)
+    except BaseException as exc:
+        runtime_failures.append(repr(exc))
+        recorder.log("runtime_failed", error=repr(exc))
+    finally:
         stop.set()
         if killer:
             killer.join(timeout=args.kill_interval + 10)
-        if not args.no_kill and submit_seconds >= args.kill_interval and kill_count == 0:
-            errors.append("no worker kill occurred")
-        recorder.log("submissions_finished", seconds=submit_seconds, primary_rps=args.jobs / submit_seconds,
-                     kills=kill_count, request_errors=errors)
-        deadline = time.monotonic() + args.timeout
-        while time.monotonic() < deadline:
-            report = audit(database_url, prefix, args.jobs)
-            recorder.log("recovery_poll", statuses=report["statuses"], missing=len(report["missing_keys"]))
-            if report["passed"]:
-                break
-            time.sleep(1)
-        report = audit(database_url, prefix, args.jobs)
-        report["request_errors"] = errors
-        report["passed"] = report["passed"] and not errors
-        report["primary_post_rps"] = round(args.jobs / submit_seconds, 2)
-        report["target_post_rps"] = args.submit_rps
-        report["target_post_rps_met"] = report["primary_post_rps"] >= args.submit_rps
-        report["worker_kills"] = kill_count
-        report["elapsed_seconds"] = round(time.monotonic() - started, 2)
+            if killer.is_alive():
+                runtime_failures.append("kill loop did not stop")
+        try:
+            audit_report = audit(database_url, prefix, args.jobs)
+            recorder.log("final_audit", audit=audit_report)
+        except Exception as exc:
+            runtime_failures.append(f"final audit: {exc!r}")
+            recorder.log("final_audit_failed", error=repr(exc))
+            audit_report = None
+        kill_count = sum(kill_counts)
+        missing_kills, runtime_failures, invariant_failures = verdict(
+            audit_report, not args.no_kill, kill_count, runtime_failures)
+        configuration_failures.extend(missing_kills)
+        report = dict(audit_report or {})
+        report.update(configuration_failures=configuration_failures,
+                      runtime_failures=runtime_failures, invariant_failures=invariant_failures,
+                      request_errors=request_errors, worker_kills=kill_count,
+                      elapsed_seconds=round(time.monotonic() - started, 2),
+                      target_post_rps=args.submit_rps,
+                      primary_post_rps=round(args.jobs / submit_seconds, 2) if submit_seconds else None)
+        report["target_post_rps_met"] = (report["primary_post_rps"] is not None and
+                                         report["primary_post_rps"] >= args.submit_rps)
+        report["passed"] = not (configuration_failures or runtime_failures or invariant_failures)
         (run_dir / "audit.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         recorder.log("run_finished", report=report)
-        return 0 if report["passed"] else 1
-    except BaseException as exc:
-        recorder.log("run_failed", error=repr(exc))
-        raise
-    finally:
-        stop.set()
         for process in ([api] if api else []) + workers:
             if process.poll() is None:
                 process.terminate()
@@ -293,6 +355,9 @@ def main():
         for handle in handles:
             handle.close()
         recorder.close()
+        if 'engine' in locals():
+            engine.dispose()
+    return 0 if report["passed"] else 1
 
 
 if __name__ == "__main__":
