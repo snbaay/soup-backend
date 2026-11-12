@@ -1,0 +1,80 @@
+x-app: &app
+  build: .
+  environment:
+    DATABASE_URL: postgresql+psycopg://soup:soup@db:5432/soup
+    LEASE_SECONDS: ${LEASE_SECONDS:-10}
+    ATTEMPT_SECONDS: ${ATTEMPT_SECONDS:-60}
+    MAX_ATTEMPTS: ${MAX_ATTEMPTS:-3}
+    HEARTBEAT_SECONDS: ${HEARTBEAT_SECONDS:-2}
+    POLL_SECONDS: ${POLL_SECONDS:-0.2}
+  depends_on:
+    init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: soup
+      POSTGRES_USER: soup
+      POSTGRES_PASSWORD: soup
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U soup -d soup"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  init:
+    build: .
+    command: ["python", "-c", "from soup.db import init_db; init_db()"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://soup:soup@db:5432/soup
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    <<: *app
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  worker1: &worker
+    <<: *app
+    command: ["python", "-m", "soup.worker"]
+  worker2: *worker
+  worker3: *worker
+  worker4: *worker
+  test-db:
+    image: postgres:16
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: soup_test
+      POSTGRES_USER: soup
+      POSTGRES_PASSWORD: soup
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U soup -d soup_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  chaos-db:
+    image: postgres:16
+    profiles: ["chaos"]
+    environment:
+      POSTGRES_DB: soup_chaos
+      POSTGRES_USER: soup
+      POSTGRES_PASSWORD: soup
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U soup -d soup_chaos"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+volumes:
+  pgdata:

@@ -1,0 +1,25 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261112175118
+Username: LAPTOP-3FOT4DPP\CodexSandboxOffline
+RunAs User: LAPTOP-3FOT4DPP\CodexSandboxOffline
+Configuration Name: 
+Machine: LAPTOP-3FOT4DPP (Microsoft Windows NT 10.0.22631.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -Command try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}
+$stamp = Get-Date -Format 'yyyyMMddTHHmmssfff'; $path = "artifacts/runs/static-transcript-$stamp.log"; Start-Transcript -Path $path | Out-Null; .\.venv\Scripts\python.exe -m compileall -q soup scripts tests; $code = $LASTEXITCODE; Write-Output "compileall exit code: $code"; Stop-Transcript | Out-Null; exit $code
+Process ID: 12520
+PSVersion: 5.1.22621.6133
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.22621.6133
+BuildVersion: 10.0.22621.6133
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+
+compileall exit code: 0
+**********************
+Windows PowerShell transcript end
+End time: 20261112175119
+**********************
