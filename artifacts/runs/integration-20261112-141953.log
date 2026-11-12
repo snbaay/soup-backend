@@ -1,0 +1,68 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.2, pytest-9.2.0, pluggy-1.7.0 -- /home/codespace/.python/current/bin/python
+cachedir: .pytest_cache
+rootdir: /workspaces/soup-backend
+plugins: platformdirs-4.14.0, anyio-4.15.1
+collecting ... collected 17 items
+
+tests/test_api.py::test_create_list_get_cancel_and_conflict PASSED       [  5%]
+tests/test_api.py::test_pagination PASSED                                [ 11%]
+tests/test_queue.py::test_transactions_use_read_committed PASSED         [ 17%]
+tests/test_queue.py::test_idempotent_retry_and_conflict PASSED           [ 23%]
+tests/test_queue.py::test_concurrent_duplicate_posts_resolve_to_one_job FAILED [ 29%]
+tests/test_queue.py::test_simultaneous_claim_only_one_owner PASSED       [ 35%]
+tests/test_queue.py::test_cancel_before_claim PASSED                     [ 41%]
+tests/test_queue.py::test_cancel_then_complete_and_complete_then_cancel PASSED [ 47%]
+tests/test_queue.py::test_expired_lease_zombie_and_reclaim PASSED        [ 52%]
+tests/test_queue.py::test_attempt_exhaustion_after_crash PASSED          [ 58%]
+tests/test_queue.py::test_work_failure_retries_then_fails PASSED         [ 64%]
+tests/test_queue.py::test_cancel_complete_race_commits_consistent_result PASSED [ 70%]
+tests/test_queue.py::test_hard_deadline_fences_worker PASSED             [ 76%]
+tests/test_queue.py::test_host_clock_skew_does_not_change_lease_decision PASSED [ 82%]
+tests/test_queue.py::test_sigkill_then_replacement_recovers_job PASSED   [ 88%]
+tests/test_unit.py::test_hash_stable_and_sensitive PASSED                [ 94%]
+tests/test_unit.py::test_cursor_round_trip PASSED                        [100%]
+
+=================================== FAILURES ===================================
+______________ test_concurrent_duplicate_posts_resolve_to_one_job ______________
+
+session_factory = sessionmaker(class_='Session', bind=Engine(postgresql+psycopg://soup:***@localhost:5433/soup_test), autoflush=True, expire_on_commit=False)
+
+    def test_concurrent_duplicate_posts_resolve_to_one_job(session_factory):
+        barrier = threading.Barrier(9)
+        results = []
+        failures = []
+    
+        def create(index):
+            try:
+                barrier.wait()
+                with session_factory() as db:
+                    job, same = queue.create_job(db, "concurrent-key", index % 2, False)
+                    results.append((job.id, same, job.duration_ms))
+            except Exception as exc:
+                failures.append(exc)
+    
+        threads = [threading.Thread(target=create, args=(index,)) for index in range(8)]
+        for thread in threads:
+            thread.start()
+        barrier.wait()
+        for thread in threads:
+            thread.join(timeout=10)
+        assert not any(thread.is_alive() for thread in threads)
+        assert not failures
+        assert len(results) == 8 and len({item[0] for item in results}) == 1
+>       assert all(same == (duration == winner_duration) for _, same, duration in results
+                   for winner_duration in [results[0][2]])
+E       assert False
+E        +  where False = all(<generator object test_concurrent_duplicate_posts_resolve_to_one_job.<locals>.<genexpr> at 0x768451927d40>)
+
+tests/test_queue.py:61: AssertionError
+=============================== warnings summary ===============================
+../../home/codespace/.local/lib/python3.14/site-packages/fastapi/testclient.py:1
+  /home/codespace/.local/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_queue.py::test_concurrent_duplicate_posts_resolve_to_one_job
+=================== 1 failed, 16 passed, 1 warning in 5.86s ====================
