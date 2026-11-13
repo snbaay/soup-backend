@@ -1,18 +1,19 @@
-# Submission checklist
+# Submission checklist (2026-11-13 audit)
 
-- [x] One-page design written before implementation
-- [ ] `docker compose up` launches API + Postgres + >=4 workers (configured, runtime unverified)
-- [x] Create/status/list(pagination)/cancel API implemented (runtime unverified)
-- [x] Enforced idempotency key uniqueness and conflict semantics in schema/source (runtime unverified)
-- [x] Side-effect count persisted in DB schema/source (runtime unverified)
-- [x] Tests written for silent failures, including clock skew and process kill (integration skipped here)
-- [ ] Chaos harness full 10k/8 worker/SIGKILL run (implemented, not executed)
-- [x] All performed raw test outputs retained, including failures; future runs must do the same
-- [x] SQL invariant checker implemented; runtime unverified
-- [x] Explain what harness cannot prove
-- [ ] 100 RPS test (not run); evidence-based DON'T SHIP verdict documented
-- [x] README explains architecture and reproducible commands
-- [x] AI_USAGE.md documents AI use and verification limits
-- [x] Paragraph on surprises and remaining concerns
-- [ ] Repository shared; email reply prepared
-- [ ] Interview practice in own words
+- [x] One-page design note written before implementation; updated to match `execution_effects` and current evidence.
+- [x] Compose defines PostgreSQL, API and four default workers; startup in this Windows checkout was not rerun.
+- [x] Create, status, cursor-paginated list and cancel API implemented.
+- [x] Database uniqueness and conflicting-payload behavior implemented and covered by integration tests.
+- [x] Row-locked claim, database-time leases, fencing generation, recovery and atomic committed effect implemented.
+- [x] Tests cover duplicate keys, double claim, cancellation races, expired leases, zombie writes, clock skew and worker termination.
+- [x] User reports 19/19 Codespaces tests and 20 repeat runs of five tests each; source has 17 database-backed and two unit tests in that 19-test set; raw Codespaces logs absent here.
+- [x] User reports full 10,000-job/eight-worker chaos run with 181 confirmed SIGKILLs and passing invariant audit; raw run directory absent here.
+- [x] SQL/key invariant checker and reproducible harness implemented; missing Codespaces outputs prevent independent final audit.
+- [x] Earlier local failures and setup attempts retained under `artifacts/runs/`.
+- [x] User reports 3,000- and 10,000-request POST-only runs at 99.98 and 99.97 RPS with zero errors; raw benchmark outputs absent here.
+- [x] README documents commands, measured limitations, surprises and evidence-based DON'T SHIP for sustained 100 RPS.
+- [x] AI usage and accepted/rejected recommendations documented.
+- [ ] Add raw Codespaces integration, repeat, chaos and benchmark logs to `artifacts/runs/` without overwriting previous runs.
+- [ ] Verify `docker compose up --build` and sustained representative 100 RPS with workers, retries and cancellations, recording load-time connection/resource data.
+- [ ] Share repository and send assignment email; not authorized in this audit.
+- [ ] Prepare independent explanation for the live discussion.

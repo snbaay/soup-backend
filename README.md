@@ -1,6 +1,14 @@
 # Soup training-job queue
 
-Python, FastAPI, PostgreSQL, SQLAlchemy/psycopg. `docker compose up --build` starts PostgreSQL, schema initialization, the API, and four independent workers. The supplied Codespaces chaos results passed database invariants but did not reach 100 primary POST/s; isolated API capacity remains **UNVERIFIED**.
+Python, FastAPI, PostgreSQL, SQLAlchemy/psycopg. `docker compose up --build` starts PostgreSQL, schema initialization, the API, and four independent workers. The reported Codespaces chaos run passed database invariants, and isolated POST-only runs reached about 100 RPS without workers. Sustained 100 RPS with workers remains unverified.
+
+For host-side tests, chaos and benchmarks on Linux/Codespaces, install Python 3.12 and Docker Compose, then from the repository root run:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
 
 ## API
 
@@ -20,40 +28,47 @@ Queue transactions use PostgreSQL `READ COMMITTED`. Claim uses `FOR UPDATE SKIP 
 
 ## Tests and raw logs
 
-Use only the dedicated `soup_test` database; tests drop and recreate its tables. Every run gets a new raw log in `artifacts/runs/`, including failures.
+Run PostgreSQL tests on Linux/Codespaces against only the dedicated `soup_test` database; tests drop and recreate its tables. Save every run, including failures, to a new raw log in `artifacts/runs/`.
 
-```powershell
+```bash
+set -o pipefail
+mkdir -p artifacts/runs
 docker compose --profile test up -d test-db
-$env:TEST_DATABASE_URL='postgresql+psycopg://soup:soup@localhost:5433/soup_test'
-$stamp = Get-Date -Format 'yyyyMMddTHHmmssfff'
-.\.venv\Scripts\python.exe -m pytest -q *>&1 | Tee-Object -FilePath "artifacts/runs/pytest-$stamp.log"
+export TEST_DATABASE_URL='postgresql+psycopg://soup:soup@127.0.0.1:5433/soup_test'
+python -m pytest -q 2>&1 | tee "artifacts/runs/pytest-$(date -u +%Y%m%dT%H%M%S%NZ).log"
 ```
 
 The integration suite covers same-key retry and conflict under concurrent insertion, simultaneous claim, cancellation before claim, both cancel/complete orders and a race, lease expiry, stale worker heartbeat/completion/failure, deadline, attempt exhaustion, forced worker termination and replacement, database isolation, and host clock skew. Without `TEST_DATABASE_URL`, integration tests skip; a green unit-only run is not database evidence.
+
+The user reports **19/19 tests passed** and **20 repeat runs passed, five tests per run**, in Codespaces. Source inspection finds 17 database-backed tests in `test_queue.py` and `test_api.py`, plus two unit tests; three focused harness tests are separate. These are reported results: the corresponding Codespaces raw logs are absent from this checkout. Existing `artifacts/runs/pytest-*.log`, `phase2-*.log`, `db-*.log`, and `static-*.log` include earlier failures and setup attempts and must be retained. A local 30-request mock HTTP smoke run at `artifacts/runs/post-bench-20261112T150323958520Z-9b589a18/` is not a PostgreSQL load result.
 
 ## Reproducible chaos run
 
 The host runner creates an API process and eight worker processes against the isolated `soup_chaos` database. It submits 10,000 unique keys at a target 100 POSTs/second and schedules duplicate POSTs and cancellations concurrently. While jobs are running, it sends SIGKILL to a random live worker about every two seconds, verifies the process exited from SIGKILL, and starts a replacement. Killing continues through the recovery poll. A run with killing enabled fails if no worker was killed. SIGKILL mode requires POSIX, such as GitHub Codespaces. Each run has a unique key prefix and unique directory with `events.jsonl`, API/worker stdout, and `audit.json`; failed runs are retained. The final audit is attempted even after a configuration or runtime failure. The verdict separates configuration, runtime, and invariant failures. Run it only after Python dependencies from `requirements.txt` are installed.
 
-```powershell
+```bash
 docker compose --profile chaos up -d chaos-db
-$env:CHAOS_DATABASE_URL='postgresql+psycopg://soup:soup@localhost:5434/soup_chaos'
-.\.venv\Scripts\python.exe -m scripts.chaos
+export CHAOS_DATABASE_URL='postgresql+psycopg://soup:soup@127.0.0.1:5434/soup_chaos'
+python -m scripts.chaos
 ```
 
 Dry run example:
 
-```powershell
+```bash
 python -m scripts.chaos --jobs 100 --workers 8 --duration-ms 5000 --submit-rps 100 --kill-interval 2 --timeout 240
 ```
 
 Other controls: `--seed`, `--duplicate-rate`, `--cancel-rate`, `--duration-ms`, `--port`, and `--no-kill`. A completed `run_started` event records the prefix. Recheck independently with:
 
-```powershell
-.\.venv\Scripts\python.exe -m scripts.check_invariants --prefix '<prefix-from-log>' --jobs 10000
+```bash
+python -m scripts.check_invariants --prefix '<prefix-from-run_started-event>' --jobs 10000
 ```
 
 The checker uses SQL joins and `EXISTS` tests, plus a Python comparison of every expected key. It fails on missing keys, duplicates, queued/running jobs after recovery, effects for non-successful jobs, success without an effect, or terminal timestamp mismatches. A passed finite run does not prove all possible schedules, network partitions, host/database crashes, prolonged outages, or external side effects. `create_all` is bootstrap only, not schema migration. Keys have no retention policy. At higher load, polling, the single PostgreSQL store, and connection pool capacity need measurement.
+
+The Compose setup has example database credentials and no API authentication or rate limiting. It is suitable for a local take-home demonstration, not direct public exposure. Production use needs secret management, access control, migrations, and operational monitoring.
+
+The user reports a completed Codespaces run with **10,000 jobs, eight workers, 181 confirmed SIGKILLs, no lost jobs, no duplicate effects, no stuck running jobs, and a passing final invariant audit**. The required raw directory should contain `events.jsonl`, `audit.json`, and API/worker logs under `artifacts/runs/chaos-<run-id>/`; **that directory is absent from this checkout**. The result is therefore not independently auditable from this repository as submitted. The reported 38.69 primary POST/s uses the harness's shared follow-up drain interval and does not measure isolated creation throughput.
 
 ## Production readiness
 
@@ -61,7 +76,7 @@ The checker uses SQL joins and `EXISTS` tests, plus a Python comparison of every
 
 The chaos runner's `--submit-rps` is a target for scheduling **unique** jobs: it submits index `i` at `submit_start + i / submit_rps` into a 32-thread pool. The same pool also handles duplicate POSTs and cancellations. `primary_post_rps` is `jobs / submit_seconds`, where `submit_seconds` ends only after **all** primary and follow-up requests finish. It therefore includes follow-up drain time and is not a clean measure of the primary HTTP creation path. Each `urllib.request.urlopen` call makes a synchronous request; the client does not configure connection reuse. Each request and event is also printed and flushed to disk. The API is one Uvicorn process with synchronous FastAPI routes; each create performs an `INSERT ... ON CONFLICT DO NOTHING RETURNING`, a row read, and a commit. The SQLAlchemy engine uses `READ COMMITTED` and the default QueuePool (locally: size 5, overflow 10) per process. Eight workers separately poll `recover_expired` and `claim_job` and heartbeat/complete against the same PostgreSQL server. These are plausible bottlenecks, not measured root causes.
 
-Run this separately from chaos and without workers. It uses a new `soup_bench` database in the existing PostgreSQL 16 container, one API process, unique keys, and POST `/jobs` only. It records each HTTP result in a new `artifacts/runs/post-bench-*/requests.jsonl` and prints/writes a summary with successful-request p50/p95/p99 latency, successful and attempted RPS, errors, configured and observed concurrency, connection count, and dispatch lag. Its persistent connection per client thread removes repeated TCP setup as an avoidable client bottleneck. The clock starts at the first scheduled request and stops at the last completed request, so backlog reduces achieved RPS. `duration_ms=0` keeps rows queued when no worker is running; it does not change the API insert path. Do not run this PostgreSQL-dependent benchmark on Windows.
+Run this separately from chaos and without workers. It uses a new `soup_bench` database in the existing PostgreSQL 16 container, one API process, unique keys, and POST `/jobs` only. It records each HTTP result in a new `artifacts/runs/post-bench-*/requests.jsonl` and prints/writes a summary with successful-request p50/p95/p99 latency, successful and attempted RPS, errors, configured and observed client concurrency, new client connections, and dispatch lag. It does **not** measure PostgreSQL connections. Its persistent connection per client thread removes repeated TCP setup as an avoidable client bottleneck. The clock starts at the first scheduled request and stops at the last completed request, so backlog reduces achieved RPS. `duration_ms=0` keeps rows queued when no worker is running; it does not change the API insert path. Do not run this PostgreSQL-dependent benchmark on Windows.
 
 ```bash
 set -e
@@ -90,6 +105,8 @@ wait "$API_PID" || true
 
 If startup or a benchmark fails, retain every log and the generated run directory. Record PostgreSQL connection count and I/O before attributing a ceiling to the server. Compare 32 and 64 clients, dispatch lag, error rates, latency tails and connection counts. A 2-core Codespace has limited shared CPU for the API, PostgreSQL and load generator. A 100 RPS target or one short successful run is insufficient for a production verdict; repeat a longer run with representative workers, payloads and resource monitoring. Each invocation creates a fresh database, leaving the original 10,000-job chaos data and outputs untouched.
 
-**DON'T SHIP at 100 RPS yet.** The supplied Codespaces evidence reports a 10,000-job, 8-worker chaos run with 181 real SIGKILLs and 38.69 primary POST/s, and a 2,000-job no-kill baseline with 55.66 primary POST/s. Both passed database invariants; the no-kill run had 1,794 successes, 206 cancellations and no request errors. The metric includes follow-up drain time, so it does not establish the API-only ceiling. Run the isolated benchmark and then repeat sustained load with representative workers. A submission target of 100 POSTs/second is a load input, not proof of sustained production capacity.
+**Reported Codespaces POST-only results:** 3,000/3,000 successful at 99.98 RPS, zero errors, 32 clients; p50 5.35 ms, p95 168.83 ms, p99 376.15 ms. A second run had 10,000/10,000 successful at 99.97 RPS, zero errors, 64 clients; p50 5.74 ms, p95 260.69 ms, p99 543.68 ms. Both ran **without workers**. Their raw `post-bench-*/summary.json`, `requests.jsonl`, API and resource logs are absent from this checkout. A PostgreSQL connection count of six was sampled **after** a benchmark and does not measure load-time concurrency.
 
-Surprises and concerns: the source model already contained the main fencing and cancellation rules, but a heartbeat interval longer than a configured short lease could let a healthy worker lose its claim; the worker now sleeps at most half a lease between heartbeats. The supplied Codespaces chaos run provides finite correctness evidence under process kills. Its rate metric includes client follow-up drain time, leaving API-only throughput, latency tails and sustained 100 RPS capacity unresolved. This Windows workspace still cannot execute PostgreSQL-dependent checks.
+**DON'T SHIP for sustained 100 RPS yet.** The isolated POST-only runs show creation throughput at the target in that setup, while the full 10,000-job chaos run reportedly passed correctness checks. Neither establishes latency or throughput under sustained 100 RPS with representative workers, retries, cancellations and fault injection. First attach the missing Codespaces raw logs; then run a longer representative mixed-load test with resource and load-time PostgreSQL connection monitoring. Inspect p95/p99 latency, errors, queue age, recovery time and pool saturation before changing capacity settings. The 2,000-job no-kill baseline was reported at 55.66 harness primary POST/s with passing invariants; that harness metric includes follow-up drain time.
+
+Surprises and concerns: a heartbeat interval longer than a short lease could let a healthy worker lose its claim, so the worker now sleeps at most half a lease between heartbeats. The reported Codespaces chaos run provides finite correctness evidence under process kills; the two isolated runs add API-only throughput and latency evidence. The missing raw Codespaces logs prevent independent review in this checkout, and sustained 100 RPS with workers remains unmeasured. This Windows workspace did not run PostgreSQL-dependent checks during the final audit.
