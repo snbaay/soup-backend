@@ -1,0 +1,26 @@
+{
+  "expected": 2000,
+  "found": 2000,
+  "missing_keys": [],
+  "unexpected_keys": [],
+  "statuses": {
+    "queued": 0,
+    "running": 0,
+    "succeeded": 1794,
+    "failed": 0,
+    "cancelled": 206
+  },
+  "duplicate_effects": 0,
+  "invalid_terminal_effect_or_timestamp": 0,
+  "effect_count": 1794,
+  "passed": true,
+  "configuration_failures": [],
+  "runtime_failures": [],
+  "invariant_failures": [],
+  "request_errors": [],
+  "worker_kills": 0,
+  "elapsed_seconds": 56.7,
+  "target_post_rps": 100.0,
+  "primary_post_rps": 55.66,
+  "target_post_rps_met": false
+}
