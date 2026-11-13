@@ -1,6 +1,6 @@
 # Soup training-job queue
 
-Python 3.12, FastAPI, PostgreSQL, SQLAlchemy/psycopg. `docker compose up --build` starts PostgreSQL, schema initialization, the API, and four independent workers. Docker and PostgreSQL were unavailable in the authoring environment; runtime behavior and 100 RPS capacity remain **UNVERIFIED**.
+Python, FastAPI, PostgreSQL, SQLAlchemy/psycopg. `docker compose up --build` starts PostgreSQL, schema initialization, the API, and four independent workers. The supplied Codespaces chaos results passed database invariants but did not reach 100 primary POST/s; isolated API capacity remains **UNVERIFIED**.
 
 ## API
 
@@ -57,6 +57,39 @@ The checker uses SQL joins and `EXISTS` tests, plus a Python comparison of every
 
 ## Production readiness
 
-**DON'T SHIP at 100 RPS yet.** A reported 100-job Codespaces run found 100 jobs and zero duplicate effects, but recorded zero worker kills; the old harness accepted that result. The fixed harness has not yet been run against PostgreSQL. Run it in Codespaces, inspect all raw failures, then perform the 10,000-job run and measure throughput and latency at a sustained 100 RPS with representative job durations and database capacity. A submission target of 100 POSTs/second is a load input, not proof of sustained production capacity.
+### Isolated HTTP creation benchmark (Codespaces/Linux)
 
-Surprises and concerns: the source model already contained the main fencing and cancellation rules, but a heartbeat interval longer than a configured short lease could let a healthy worker lose its claim; the worker now sleeps at most half a lease between heartbeats. The largest remaining uncertainty is actual PostgreSQL behavior under process kills and sustained load, because Docker Desktop could not start due to WSL errors here. No runtime result is claimed from the skipped integration suite.
+The chaos runner's `--submit-rps` is a target for scheduling **unique** jobs: it submits index `i` at `submit_start + i / submit_rps` into a 32-thread pool. The same pool also handles duplicate POSTs and cancellations. `primary_post_rps` is `jobs / submit_seconds`, where `submit_seconds` ends only after **all** primary and follow-up requests finish. It therefore includes follow-up drain time and is not a clean measure of the primary HTTP creation path. Each `urllib.request.urlopen` call makes a synchronous request; the client does not configure connection reuse. Each request and event is also printed and flushed to disk. The API is one Uvicorn process with synchronous FastAPI routes; each create performs an `INSERT ... ON CONFLICT DO NOTHING RETURNING`, a row read, and a commit. The SQLAlchemy engine uses `READ COMMITTED` and the default QueuePool (locally: size 5, overflow 10) per process. Eight workers separately poll `recover_expired` and `claim_job` and heartbeat/complete against the same PostgreSQL server. These are plausible bottlenecks, not measured root causes.
+
+Run this separately from chaos and without workers. It uses a new `soup_bench` database in the existing PostgreSQL 16 container, one API process, unique keys, and POST `/jobs` only. It records each HTTP result in a new `artifacts/runs/post-bench-*/requests.jsonl` and prints/writes a summary with successful-request p50/p95/p99 latency, successful and attempted RPS, errors, configured and observed concurrency, connection count, and dispatch lag. Its persistent connection per client thread removes repeated TCP setup as an avoidable client bottleneck. The clock starts at the first scheduled request and stops at the last completed request, so backlog reduces achieved RPS. `duration_ms=0` keeps rows queued when no worker is running; it does not change the API insert path. Do not run this PostgreSQL-dependent benchmark on Windows.
+
+```bash
+set -e
+mkdir -p artifacts/runs
+docker compose --profile chaos up -d chaos-db
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+BENCH_DB="soup_bench_$(date -u +%Y%m%d%H%M%S)"
+docker compose exec -T chaos-db createdb -U soup "$BENCH_DB" > "artifacts/runs/post-createdb-$STAMP.log" 2>&1
+export DATABASE_URL="postgresql+psycopg://soup:soup@127.0.0.1:5434/$BENCH_DB"
+python -m uvicorn soup.api:app --host 127.0.0.1 --port 8002 > "artifacts/runs/post-api-$STAMP.log" 2>&1 &
+API_PID=$!
+trap 'kill "$API_PID" 2>/dev/null || true' EXIT
+for i in $(seq 1 100); do curl -fsS http://127.0.0.1:8002/health >/dev/null 2>&1 && break; sleep 0.2; done
+curl -fsS http://127.0.0.1:8002/health > "artifacts/runs/post-health-$STAMP.log"
+DB_ID="$(docker compose --profile chaos ps -q chaos-db)"
+(while kill -0 "$API_PID" 2>/dev/null; do date -Is; ps -p "$API_PID" -o pid,%cpu,%mem,rss,etime; docker stats --no-stream "$DB_ID"; sleep 2; done) > "artifacts/runs/post-resource-$STAMP.log" 2>&1 &
+MONITOR_PID=$!
+nproc > "artifacts/runs/post-host-$STAMP.log"
+free -h >> "artifacts/runs/post-host-$STAMP.log"
+python -m scripts.bench_post --url http://127.0.0.1:8002 --requests 3000 --target-rps 100 --concurrency 32 > "artifacts/runs/post-bench-3000-$STAMP.log" 2>&1
+python -m scripts.bench_post --url http://127.0.0.1:8002 --requests 10000 --target-rps 100 --concurrency 64 > "artifacts/runs/post-bench-10000-$STAMP.log" 2>&1
+kill "$MONITOR_PID"
+kill "$API_PID"
+wait "$API_PID" || true
+```
+
+If startup or a benchmark fails, retain every log and the generated run directory. Record PostgreSQL connection count and I/O before attributing a ceiling to the server. Compare 32 and 64 clients, dispatch lag, error rates, latency tails and connection counts. A 2-core Codespace has limited shared CPU for the API, PostgreSQL and load generator. A 100 RPS target or one short successful run is insufficient for a production verdict; repeat a longer run with representative workers, payloads and resource monitoring. Each invocation creates a fresh database, leaving the original 10,000-job chaos data and outputs untouched.
+
+**DON'T SHIP at 100 RPS yet.** The supplied Codespaces evidence reports a 10,000-job, 8-worker chaos run with 181 real SIGKILLs and 38.69 primary POST/s, and a 2,000-job no-kill baseline with 55.66 primary POST/s. Both passed database invariants; the no-kill run had 1,794 successes, 206 cancellations and no request errors. The metric includes follow-up drain time, so it does not establish the API-only ceiling. Run the isolated benchmark and then repeat sustained load with representative workers. A submission target of 100 POSTs/second is a load input, not proof of sustained production capacity.
+
+Surprises and concerns: the source model already contained the main fencing and cancellation rules, but a heartbeat interval longer than a configured short lease could let a healthy worker lose its claim; the worker now sleeps at most half a lease between heartbeats. The supplied Codespaces chaos run provides finite correctness evidence under process kills. Its rate metric includes client follow-up drain time, leaving API-only throughput, latency tails and sustained 100 RPS capacity unresolved. This Windows workspace still cannot execute PostgreSQL-dependent checks.
